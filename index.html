@@ -1,0 +1,718 @@
+# Pemilihan Ketua Organisasi Sekolah — Prototipe (Semua file siap Upload)
+
+> Struktur file berikut bisa langsung Anda copy/paste ke repo GitHub (branch `main`, folder root). Buka `index.html`/`vote.html`/`results.html` secara lokal untuk menjalankan (tanpa server).
+
+---
+
+## STRUKTUR PROYEK
+
+```
+/ (root)
+├─ index.html
+├─ vote.html
+├─ results.html
+├─ /assets
+│  ├─ style.css
+│  └─ logo.png (placeholder)
+├─ /js
+│  ├─ config.js
+│  ├─ storage.js
+│  ├─ borda.js
+│  ├─ ui.js
+│  └─ charts.js
+├─ /data
+│  └─ sample.csv
+├─ README.md
+└─ CNAME
+```
+
+---
+
+> **Catatan**: Jangan salin bagian ini ke file — di bawah setiap header file ada blok kode lengkap yang harus Anda simpan sebagai file bernama sama.
+
+---
+
+# index.html
+
+```html
+<!doctype html>
+<html lang="id">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Pemilihan Ketua - Borda Count</title>
+  <link rel="stylesheet" href="/assets/style.css" />
+  <link rel="icon" href="/assets/logo.png" />
+</head>
+<body>
+  <header class="site-header">
+    <img src="/assets/logo.png" alt="Logo" class="logo" />
+    <div>
+      <h1 id="org-name">Pemilihan Ketua</h1>
+      <p id="org-type" class="muted">Organisasi Sekolah</p>
+    </div>
+  </header>
+
+  <main class="container">
+    <section>
+      <h2>Apa itu Borda Count?</h2>
+      <p>Borda Count adalah metode perankingan di mana pemilih memberi peringkat semua kandidat. Jika ada <code>k</code> kandidat, peringkat 1 mendapat <code>k</code> poin, peringkat 2 mendapat <code>k-1</code>, ... sampai peringkat <code>k</code> mendapat 1 poin. Metode ini cocok untuk memilih kandidat kompromi.</p>
+
+      <div class="actions">
+        <a class="btn" href="/vote.html">Mulai Voting</a>
+        <a class="btn btn-outline" href="/results.html">Lihat Hasil</a>
+      </div>
+
+      <aside class="note">
+        <strong>Catatan keamanan:</strong> Ini prototipe edukasi — penyimpanan lokal (localStorage) dan bukan sistem e‑voting audit.
+      </aside>
+    </section>
+
+    <section>
+      <h3>Fitur</h3>
+      <ul>
+        <li>Input peringkat pemilih (sortable & keyboard accessible).</li>
+        <li>Skor Borda otomatis (skala n→1).</li>
+        <li>Tampilan rekap tabel, matriks peringkat, grafik (Chart.js), export CSV, reset data.</li>
+      </ul>
+    </section>
+
+    <section>
+      <h3>Konfigurasi Cepat</h3>
+      <p>Edit <code>/js/config.js</code> untuk mengganti nama organisasi & kandidat.</p>
+    </section>
+  </main>
+
+  <footer class="site-footer">
+    <small>Prototipe — untuk tujuan pendidikan. Lisensi MIT. Lihat README.md untuk panduan hosting di GitHub Pages.</small>
+  </footer>
+
+  <script src="/js/config.js"></script>
+  <script>
+    // tampilkan konfigurasi di halaman utama
+    document.getElementById('org-name').textContent = ORG_NAME || 'Pemilihan Ketua';
+    document.getElementById('org-type').textContent = ORG_TYPE || '';
+  </script>
+</body>
+</html>
+```
+
+---
+
+# vote.html
+
+```html
+<!doctype html>
+<html lang="id">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Vote — Pemilihan Ketua</title>
+  <link rel="stylesheet" href="/assets/style.css" />
+</head>
+<body>
+  <header class="site-header small">
+    <a href="/index.html" class="brand-link">← Kembali</a>
+    <h1>Voting</h1>
+  </header>
+
+  <main class="container">
+    <section aria-labelledby="vote-desc">
+      <h2 id="vote-desc">Urutkan kandidat (peringkat 1 = paling atas)</h2>
+      <p class="muted">Gunakan drag & drop atau tombol panah. Semua peringkat harus terisi. Tidak boleh sama (no ties).</p>
+
+      <form id="vote-form">
+        <div id="sortable-list" class="sortable" role="list" aria-label="Daftar kandidat yang dapat diurutkan"></div>
+
+        <div class="form-row">
+          <button type="button" class="btn" id="submit-vote">Kirim Suara</button>
+          <button type="button" class="btn btn-outline" id="reset-order">Reset Urutan</button>
+          <button type="button" class="btn btn-ghost" id="generate-sim">Generate 30 Suara (Sim)</button>
+        </div>
+
+        <div class="form-row">
+          <label for="import-csv">Import CSV (opsional):</label>
+          <input id="import-csv" type="file" accept=".csv" />
+          <small class="muted">Format: namaKolom: voterId,timestamp,ranking (ranking dipisah `|`), contoh ada di /data/sample.csv</small>
+        </div>
+      </form>
+
+      <div id="toast" class="toast" role="status" aria-live="polite"></div>
+    </section>
+  </main>
+
+  <script src="/js/config.js"></script>
+  <script src="/js/storage.js"></script>
+  <script src="/js/borda.js"></script>
+  <script src="/js/ui.js"></script>
+  <script>
+    /* Setup: render kandidat di #sortable-list */
+    const listRoot = document.getElementById('sortable-list');
+
+    function renderList(order){
+      listRoot.innerHTML = '';
+      order.forEach((name, idx) => {
+        const item = document.createElement('div');
+        item.className = 'sortable-item';
+        item.draggable = true;
+        item.tabIndex = 0;
+        item.dataset.name = name;
+        item.dataset.index = idx;
+        item.setAttribute('role','listitem');
+
+        item.innerHTML = `
+          <span class="drag-handle" aria-hidden>≡</span>
+          <span class="candidate-name">${escapeHtml(name)}</span>
+          <div class="item-controls">
+            <button class="small" aria-label="Pindah ke atas">▲</button>
+            <button class="small" aria-label="Pindah ke bawah">▼</button>
+          </div>
+        `;
+        listRoot.appendChild(item);
+      });
+      makeSortable(listRoot);
+    }
+
+    // start order from config
+    renderList(CANDIDATES.slice());
+
+    // Reset order
+    document.getElementById('reset-order').addEventListener('click', ()=> renderList(CANDIDATES.slice()));
+
+    // Arrow up/down accessibility
+    listRoot.addEventListener('click', (e)=>{
+      const btn = e.target.closest('button');
+      if(!btn) return;
+      const item = btn.closest('.sortable-item');
+      const idx = Array.from(listRoot.children).indexOf(item);
+      if(btn.textContent.trim() === '▲' && idx>0){
+        listRoot.insertBefore(item, listRoot.children[idx-1]);
+      } else if(btn.textContent.trim() === '▼' && idx < listRoot.children.length-1){
+        listRoot.insertBefore(listRoot.children[idx+1], item);
+      }
+    });
+
+    // Submit vote
+    document.getElementById('submit-vote').addEventListener('click', ()=>{
+      const ranking = Array.from(listRoot.children).map(it => it.dataset.name);
+      // validation
+      if(ranking.length !== CANDIDATES.length || (new Set(ranking)).size !== CANDIDATES.length){
+        showToast('Validasi gagal: pastikan semua kandidat terurut dan tidak duplikat.');
+        return;
+      }
+      // store
+      const vote = { voterId: genId(), timestamp: new Date().toISOString(), ranking };
+      storage.addVote(vote);
+      showToast('Suara tersimpan. Terima kasih!');
+    });
+
+    // CSV import
+    document.getElementById('import-csv').addEventListener('change', async (e)=>{
+      const f = e.target.files[0]; if(!f) return;
+      const txt = await f.text();
+      const imported = parseCsvVotes(txt);
+      let added = 0;
+      imported.forEach(v => { try{ storage.addVote(v); added++; }catch(err){} });
+      showToast(`${added} suara diimport.`);
+      e.target.value = '';
+    });
+
+    // generate simulation
+    document.getElementById('generate-sim').addEventListener('click', ()=>{
+      for(let i=0;i<30;i++){
+        const r = randomRanking(CANDIDATES);
+        storage.addVote({ voterId: genId(), timestamp: new Date().toISOString(), ranking: r });
+      }
+      showToast('30 suara simulasi digenerate.');
+    });
+
+    // helpers available from included files: genId, escapeHtml, parseCsvVotes, randomRanking, makeSortable, showToast
+  </script>
+</body>
+</html>
+```
+
+---
+
+# results.html
+
+```html
+<!doctype html>
+<html lang="id">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Hasil — Pemilihan Ketua</title>
+  <link rel="stylesheet" href="/assets/style.css" />
+  <!-- Chart.js CDN -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+<body>
+  <header class="site-header small">
+    <a href="/index.html" class="brand-link">← Kembali</a>
+    <h1>Hasil Pemilihan</h1>
+  </header>
+
+  <main class="container">
+    <section>
+      <h2>Rekap Poin</h2>
+      <div id="summary-table"></div>
+      <canvas id="barChart" aria-label="Grafik Poin Kandidat" role="img"></canvas>
+    </section>
+
+    <section>
+      <h2>Matriks Peringkat</h2>
+      <div id="matrix"></div>
+    </section>
+
+    <section class="form-row">
+      <button id="export-csv" class="btn">Export CSV</button>
+      <button id="export-raw" class="btn btn-outline">Export Raw Votes CSV</button>
+      <button id="reset-data" class="btn btn-danger">Reset Data</button>
+    </section>
+
+    <div id="toast" class="toast" role="status" aria-live="polite"></div>
+  </main>
+
+  <script src="/js/config.js"></script>
+  <script src="/js/storage.js"></script>
+  <script src="/js/borda.js"></script>
+  <script src="/js/charts.js"></script>
+  <script src="/js/ui.js"></script>
+  <script>
+    // compute results
+    const votes = storage.getAllVotes();
+    const k = CANDIDATES.length;
+    const result = computeBordaResults(votes, { scoring: SCORING });
+
+    // render table
+    const tableRoot = document.getElementById('summary-table');
+    tableRoot.innerHTML = renderSummaryTable(result.totals, result.ranking);
+
+    // render matrix
+    document.getElementById('matrix').innerHTML = renderMatrix(result.matrix);
+
+    // chart
+    renderBarChart('barChart', result.totals, CANDIDATES);
+
+    // export
+    document.getElementById('export-csv').addEventListener('click', ()=>{
+      const csv = exportTotalsCsv(result.totals);
+      downloadFile(csv, 'borda_totals.csv');
+    });
+    document.getElementById('export-raw').addEventListener('click', ()=>{
+      const csv = storage.exportRawCsv();
+      downloadFile(csv, 'borda_raw_votes.csv');
+    });
+
+    // reset
+    document.getElementById('reset-data').addEventListener('click', ()=>{
+      if(!confirm('Hapus semua data suara? Tindakan ini tidak dapat dibatalkan.')) return;
+      storage.reset();
+      showToast('Data direset. Muat ulang halaman untuk melihat perubahan.');
+    });
+
+    // small render helper functions provided by borda.js/ui.js/charts.js
+  </script>
+</body>
+</html>
+```
+
+---
+
+# /assets/style.css
+
+```css
+:root{
+  --bg:#ffffff; --fg:#111827; --muted:#6b7280; --accent:#0ea5a4; --danger:#ef4444; --card:#f8fafc;
+}
+*{box-sizing:border-box}
+body{font-family:Inter,ui-sans-serif,system-ui,Segoe UI,Roboto,"Helvetica Neue",Arial; margin:0;color:var(--fg);background:var(--bg)}
+.container{max-width:900px;margin:24px auto;padding:16px}
+.site-header{display:flex;gap:12px;align-items:center;padding:12px 16px;background:var(--card);border-bottom:1px solid #e6edf0}
+.site-header.small{padding:8px 16px}
+.logo{width:56px;height:56px;object-fit:cover}
+.brand-link{color:var(--muted);text-decoration:none;font-size:14px}
+h1,h2,h3{margin:0 0 8px}
+.muted{color:var(--muted)}
+.actions{margin-top:12px}
+.btn{display:inline-block;padding:8px 12px;border-radius:8px;background:var(--accent);color:white;text-decoration:none;border:none;cursor:pointer}
+.btn:hover{opacity:.95}
+.btn-outline{background:transparent;color:var(--accent);border:1px solid var(--accent)}
+.btn-ghost{background:transparent;border:1px dashed var(--muted);color:var(--muted)}
+.btn-danger{background:var(--danger);color:white}
+.form-row{margin-top:12px;display:flex;gap:8px;flex-wrap:wrap}
+.note{background:#fffbeb;border-left:4px solid #f59e0b;padding:8px;border-radius:6px;margin-top:12px}
+.sortable{border:1px dashed #e6edf0;padding:8px;border-radius:8px}
+.sortable-item{display:flex;align-items:center;gap:8px;padding:8px;background:white;border-radius:6px;margin-bottom:8px;box-shadow:0 1px 0 rgba(0,0,0,.04)}
+.sortable-item:focus{outline:2px solid #93c5fd}
+.drag-handle{cursor:grab;padding:4px}
+.item-controls{margin-left:auto;display:flex;gap:6px}
+.small{padding:4px 6px;border-radius:6px}
+.toast{position:fixed;right:16px;bottom:16px;background:#111827;color:white;padding:10px 14px;border-radius:8px;display:none}
+.table{width:100%;border-collapse:collapse;margin-top:12px}
+.table th,.table td{padding:8px;border:1px solid #eef2f6;text-align:left}
+@media (max-width:600px){.container{padding:12px}.logo{display:none}}
+```
+
+---
+
+# /js/config.js
+
+```javascript
+// config.js — edit cepat untuk mengganti nama organisasi & kandidat
+const ORG_NAME = 'Pemilihan Ketua OSIS - SMAN 1 Plosoklaten';
+const ORG_TYPE = 'OSIS';
+const CANDIDATES = ["Aulia","Bima","Citra","Davin"];
+const SCORING = 'descending'; // 'descending' => k->1
+const ALLOW_TIES = false;
+// Optional custom scoring example (uncomment to use):
+// const SCORING_CUSTOM = [5,3,1];
+```
+
+---
+
+# /js/storage.js
+
+```javascript
+/* storage.js
+   Simple localStorage CRUD for votes.
+   Key: 'bordaVotes:v1'
+   Vote schema: { voterId, timestamp, ranking: ["Nama A","Nama B", ...] }
+*/
+const STORAGE_KEY = 'bordaVotes:v1';
+const storage = (function(){
+  function _read(){
+    try{ const raw = localStorage.getItem(STORAGE_KEY); return raw? JSON.parse(raw): []; }catch(e){ return []; }
+  }
+  function _write(data){ localStorage.setItem(STORAGE_KEY, JSON.stringify(data)); }
+
+  return {
+    getAllVotes: ()=> _read(),
+    addVote: (vote)=>{
+      const arr = _read();
+      // basic validation
+      if(!vote || !Array.isArray(vote.ranking)) throw new Error('Invalid vote');
+      arr.push(vote);
+      _write(arr);
+    },
+    reset: ()=>{ localStorage.removeItem(STORAGE_KEY); },
+    exportRawCsv: ()=>{
+      const arr = _read();
+      const rows = ['voterId,timestamp,ranking'];
+      arr.forEach(v=> rows.push([escapeCsv(v.voterId), escapeCsv(v.timestamp), escapeCsv((v.ranking||[]).join('|'))].join(',')));
+      return rows.join('\n');
+    }
+  };
+})();
+
+// expose simple API expected by pages
+window.storage = storage;
+
+// helper
+function escapeCsv(s){ if(s==null) return ''; return '"'+String(s).replace(/"/g,'""')+'"'; }
+```
+
+---
+
+# /js/borda.js
+
+```javascript
+/* borda.js
+   Implementasi perhitungan Borda (clean & terkomentar).
+*/
+
+/**
+ * computeBordaResults(votes, options)
+ * votes: array of vote objects { voterId, timestamp, ranking }
+ * options: { scoring: 'descending' | 'custom', customArray? }
+ * returns: { totals: {name:points}, ranking: [{name,points}], matrix: { name: {pos1:count, pos2:count...} } }
+ */
+function computeBordaResults(votes, options={}){
+  const names = CANDIDATES.slice();
+  const k = names.length;
+
+  // scoring array: if custom provided use it, else descending k..1
+  let scoringArr;
+  if(window.SCORING_CUSTOM && Array.isArray(window.SCORING_CUSTOM) && window.SCORING_CUSTOM.length===k){
+    scoringArr = SCORING_CUSTOM.slice();
+  }else{
+    scoringArr = Array.from({length:k}, (_,i) => k - i);
+  }
+
+  // totals init
+  const totals = {};
+  names.forEach(n=> totals[n]=0);
+
+  // matrix init: counts how many times a candidate got position i
+  const matrix = {};
+  names.forEach(n=>{
+    matrix[n] = {};
+    for(let p=1;p<=k;p++) matrix[n]['pos'+p] = 0;
+  });
+
+  // Tally
+  votes.forEach(vote=>{
+    const r = vote.ranking || [];
+    // If ranking length mismatch, ignore vote (basic validation)
+    if(r.length !== k) return;
+    // ensure no duplicates
+    if((new Set(r)).size !== k) return;
+
+    r.forEach((candidate, idx)=>{
+      const pos = idx+1; // 1-based
+      const points = scoringArr[idx] !== undefined ? scoringArr[idx] : (k - idx);
+      if(totals.hasOwnProperty(candidate)) totals[candidate] += points;
+      if(matrix[candidate]) matrix[candidate]['pos'+pos]++;
+    });
+  });
+
+  // ranking array
+  const ranking = Object.keys(totals).map(name=>({name, points: totals[name]}))
+    .sort((a,b)=> b.points - a.points || a.name.localeCompare(b.name));
+
+  return { totals, ranking, matrix };
+}
+
+// helper to render summary table HTML
+function renderSummaryTable(totals, ranking){
+  const headers = `<table class="table"><thead><tr><th>Peringkat</th><th>Nama</th><th>Poin</th></tr></thead><tbody>`;
+  const rows = ranking.map((r, i)=>`<tr><td>${i+1}</td><td>${escapeHtml(r.name)}</td><td>${r.points}</td></tr>`).join('');
+  return headers + rows + '</tbody></table>';
+}
+
+function renderMatrix(matrix){
+  const keys = Object.keys(matrix);
+  if(keys.length===0) return '<p class="muted">Belum ada suara.</p>';
+  const k = Object.keys(matrix[keys[0]]).length;
+  const header = ['<table class="table"><thead><tr><th>Nama</th>']
+    .concat(Array.from({length:k}, (_,i)=>`<th>Pos ${i+1}</th>`)).join('') + '</tr></thead><tbody>';
+  const rows = keys.map(name=>{
+    const cells = Array.from({length:k}, (_,i)=>`<td>${matrix[name]['pos'+(i+1)]||0}</td>`).join('');
+    return `<tr><td>${escapeHtml(name)}</td>${cells}</tr>`;
+  }).join('');
+  return header + rows + '</tbody></table>';
+}
+
+// export totals to CSV
+function exportTotalsCsv(totals){
+  const rows = ['nama,poin'];
+  Object.keys(totals).forEach(n=> rows.push([escapeCsv(n), totals[n]].join(',')));
+  return rows.join('\n');
+}
+
+// helpers used in pages
+window.computeBordaResults = computeBordaResults;
+window.renderSummaryTable = renderSummaryTable;
+window.renderMatrix = renderMatrix;
+window.exportTotalsCsv = exportTotalsCsv;
+
+// small CSV helper for escape used above
+function escapeCsv(s){ if(s==null) return ''; return '"'+String(s).replace(/"/g,'""')+'"'; }
+```
+
+---
+
+# /js/ui.js
+
+```javascript
+/* ui.js — helper UI utilities: sortable, toast, parsing CSV, small helpers */
+
+// basic DOM-safe escape
+function escapeHtml(s){ if(s==null) return ''; return String(s).replace(/[&<>"']/g, function(m){return{'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;','\'":"' }[m];}); }
+
+// simple id generator
+function genId(){ return 'v_'+Math.random().toString(36).slice(2,10); }
+
+// toast
+function showToast(msg, timeout=2500){
+  const t = document.getElementById('toast');
+  if(!t) { alert(msg); return; }
+  t.textContent = msg;
+  t.style.display = 'block';
+  clearTimeout(t._tm);
+  t._tm = setTimeout(()=> t.style.display='none', timeout);
+}
+
+// make element sortable via HTML5 drag/drop
+function makeSortable(container){
+  let dragEl = null;
+  container.addEventListener('dragstart', (e)=>{
+    dragEl = e.target.closest('.sortable-item');
+    if(!dragEl) return;
+    e.dataTransfer.effectAllowed = 'move';
+    try{ e.dataTransfer.setData('text/plain', 'drag'); }catch(e){}
+    dragEl.classList.add('dragging');
+  });
+  container.addEventListener('dragend', (e)=>{
+    if(dragEl) dragEl.classList.remove('dragging'); dragEl=null;
+  });
+  container.addEventListener('dragover', (e)=>{
+    e.preventDefault();
+    const after = getDragAfterElement(container, e.clientY);
+    const dragging = container.querySelector('.dragging');
+    if(!dragging) return;
+    if(after == null) container.appendChild(dragging);
+    else container.insertBefore(dragging, after);
+  });
+
+  function getDragAfterElement(container, y){
+    const items = [...container.querySelectorAll('.sortable-item:not(.dragging)')];
+    return items.reduce((closest, child)=>{
+      const box = child.getBoundingClientRect();
+      const offset = y - box.top - box.height/2;
+      if(offset < 0 && offset > closest.offset){
+        return { offset, element: child };
+      } else return closest;
+    }, { offset: Number.NEGATIVE_INFINITY }).element;
+  }
+}
+
+// parse CSV votes (basic tolerant parser)
+function parseCsvVotes(txt){
+  const lines = txt.split(/\r?\n/).map(l=>l.trim()).filter(Boolean);
+  const out = [];
+  // expect header or direct rows
+  lines.forEach((ln, idx)=>{
+    if(idx===0 && ln.toLowerCase().includes('voter')) return; // skip header if present
+    const parts = ln.split(',');
+    if(parts.length<3) return;
+    const voterId = parts[0].replace(/^"|"$/g,'');
+    const timestamp = parts[1].replace(/^"|"$/g,'');
+    const ranking = parts.slice(2).join(',').replace(/^"|"$/g,'').split('|').map(s=>s.trim()).filter(Boolean);
+    if(ranking.length===CANDIDATES.length) out.push({ voterId, timestamp, ranking });
+  });
+  return out;
+}
+
+// random ranking generator
+function randomRanking(candidates){
+  const arr = candidates.slice();
+  for(let i=arr.length-1;i>0;i--){ const j = Math.floor(Math.random()*(i+1)); [arr[i],arr[j]]=[arr[j],arr[i]] }
+  return arr;
+}
+
+// small download helper
+function downloadFile(content, filename){
+  const blob = new Blob([content], { type: 'text/csv' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a'); a.href = url; a.download = filename; document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(()=> URL.revokeObjectURL(url), 2000);
+}
+
+// expose small helpers
+window.escapeHtml = escapeHtml;
+window.genId = genId;
+window.makeSortable = makeSortable;
+window.parseCsvVotes = parseCsvVotes;
+window.randomRanking = randomRanking;
+window.showToast = showToast;
+window.downloadFile = downloadFile;
+```
+
+---
+
+# /js/charts.js
+
+```javascript
+/* charts.js — wrapper Chart.js simple bar chart */
+function renderBarChart(canvasId, totals, labels){
+  const ctx = document.getElementById(canvasId).getContext('2d');
+  const data = labels.map(l=> totals[l] || 0);
+  // destroy existing chart instance stored on element
+  if(ctx._chart) ctx._chart.destroy();
+  ctx._chart = new Chart(ctx, {
+    type: 'bar',
+    data: { labels, datasets: [{ label: 'Poin', data }] },
+    options: { responsive:true, plugins:{legend:{display:false}} }
+  });
+}
+window.renderBarChart = renderBarChart;
+```
+
+---
+
+# /data/sample.csv
+
+```csv
+voterId,timestamp,ranking
+v_abc01,2025-11-10T07:00:00Z,"Aulia|Bima|Citra|Davin"
+v_abc02,2025-11-10T07:05:00Z,"Bima|Citra|Davin|Aulia"
+```
+
+---
+
+# README.md
+
+````markdown
+# Pemilihan Ketua (Prototipe) — Metode Borda Count
+
+Sebuah aplikasi web statis (vanilla HTML/CSS/JS) untuk mendemonstrasikan metode Borda Count. Siap di-deploy ke **GitHub Pages**.
+
+## Cara cepat
+- Edit kandidat & organisasi di `/js/config.js`.
+- Buka `index.html` / `vote.html` / `results.html` secara lokal (cukup klik file di browser).
+
+## Mengubah kandidat
+Edit `/js/config.js`:
+```js
+const CANDIDATES = ["Aulia","Bima","Citra","Davin"];
+````
+
+Simpan dan muat ulang halaman.
+
+## Menjalankan lokal
+
+Tidak perlu server. Buka file HTML di browser. Untuk beberapa browser yang ketat, Anda bisa menjalankan `npx http-server` atau `python -m http.server` di folder proyek.
+
+## Hosting di GitHub Pages
+
+1. Buat repository baru di GitHub.
+2. Push semua file (pastikan struktur root sama).
+3. GitHub → Settings → Pages → Source: `main` branch, folder `/ (root)` → Save.
+4. Akses: `https://<username>.github.io/<repo>/`.
+
+## Custom domain
+
+1. Tambahkan file `CNAME` di root yang berisi domain Anda (misal `voting.sman1plosoklaten.sch.id`).
+2. Di DNS provider: tambahkan CNAME record yang menunjuk ke `<username>.github.io.`
+3. Tunggu propagasi. Aktifkan HTTPS di halaman Pages.
+
+## Export / Reset Data
+
+* Di halaman Hasil ada tombol `Export CSV` (rekap poin) dan `Export Raw Votes CSV`.
+* Tombol `Reset Data` akan menghapus semua suara dari localStorage.
+
+## Keterbatasan
+
+* **Prototipe edukasi**: penyimpanan di localStorage (client-side), tidak ada autentikasi, audit trail, atau anti‑manipulasi. Jangan gunakan untuk pemilu resmi.
+
+## Fitur tambahan (opsional)
+
+* Mode Simulasi: generate 30 suara acak pada halaman voting untuk demo.
+* Tema mudah diubah melalui CSS variables di `/assets/style.css`.
+
+## Lisensi
+
+MIT — lihat file LICENSE (sertakan lisensi MIT ketika mem-push ke repo)
+
+```
+
+---
+
+# CNAME
+```
+
+voting.sman1plosoklaten.sch.id
+
+```
+
+---
+
+Selesai — file di atas komplet dan siap Anda salin ke repository. Jika Anda mau, saya bisa juga:
+- Menghasilkan arsip ZIP dari semua file (minta dan saya buat link download), atau
+- Menyederhanakan UI/warna, menambahkan badge demo, atau menyesuaikan teks bahasa.
+
+Catatan: file `logo.png` adalah placeholder — Anda bisa mengganti dengan logo sekolah.
+
+```
